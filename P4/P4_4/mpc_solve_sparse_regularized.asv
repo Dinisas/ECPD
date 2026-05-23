@@ -85,7 +85,7 @@ if const_type==1 % modified to include eta
         if isempty(lb), lb = -inf(N_u, 1); end
         if isempty(ub), ub =  inf(N_u, 1); end
         lb_z = [-inf(N_x, 1); lb; ones(N_eta,1)*0.0001];% eta >=0
-        ub_z = [ inf(N_x, 1); ub; inf(N_eta,1)]; 
+        ub_z = [ inf(N_x, 1); ub, inf(N_eta,1)]; 
     else
         lb_z = [];
         ub_z = [];
@@ -102,12 +102,18 @@ if use_output_constraint
     end
     if const_type==1 %SOFT
         C_til  = [zeros(H, n), kron(eye(H), C)];
-        A_ineq = [C_til, zeros(H, N_u), -eye(N_eta)];% include soft constraint
+        A_ineq = [C_til, zeros(H, N_u), zeros(H,N_eta)];
+        % add slack variables eta (last H entries of decision vector) to RHS
+        % b_ineq = y_max_inc + eta => move eta to RHS by adding corresponding columns of A_ineq
+        % Implement by setting b_ineq = y_max_inc + eta_symbolic, but quadprog needs numeric b_ineq.
+        % So instead include eta on LHS with coefficient +1 and keep b_ineq = y_max_inc.
+        % Modify A_ineq to include +1 on eta columns.
+        A_ineq = [C_til, zeros(H, N_u), eye(N_eta)];
         b_ineq = y_max_inc * ones(H, 1);
     end
-else
-    A_ineq = [];
-    b_ineq = [];
+    else
+        A_ineq = [];
+        b_ineq = [];
        
 end
 

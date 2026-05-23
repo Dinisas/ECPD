@@ -46,12 +46,14 @@ offset = 0;            % desired Dy(1) = offset [°C]
 % ═════════════════════════════════════════════════════════════════════════
 
 % ── Reference (incremental) ───────────────────────────────────────────────
-Dr = 0;         % desired output increment [°C]  -> r = y_ss + Dr
+Dr = 15;         % desired output increment [°C]  -> r = y_ss + Dr
 
 % HARD constraint δy_hat​(i)≤55−y_bar ​−Δr
 y_max = 55; 
-y_max_inc = []; 
+y_max_inc = (y_max-y_ss)-Dr; 
+
 mode = 1; % 0 is dense ; 1 is sparse
+const_type = 1; %0 is hard, 1 is soft
 
 % ── Q4.A — Feedforward: solve steady-state equations ─────────────────────
 % Find (Dx_bar, Du_bar) such that the system is in equilibrium at Dy = Dr.
@@ -148,7 +150,7 @@ for k = 1:N
     if mode == 0
       [du_k, exitflag(k)] = mpc_solve(dx_k, H, R, A, B, C, lb, ub, y_max_inc);
     elseif mode == 1
-      [du_k, exitflag(k)] = mpc_solve_sparse(dx_k, H, R, A, B, C, lb, ub, y_max_inc);
+      [du_k, exitflag(k)] = mpc_solve_sparse_regularized(dx_k, H, R, A, B, C, lb, ub, y_max_inc,const_type);
     end
 
     Du(:,k) = du_k + Du_bar;                             % reconstruct increment
