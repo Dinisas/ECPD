@@ -22,7 +22,7 @@ addpath(fullfile(base, '../P3'));          % singleheater_model.mat
 addpath(fullfile(base, '../P4'));          % mpc_solve.m
 
 % ── Load model ────────────────────────────────────────────────────────────
-load('singleheater_model_n2.mat','A','B','C','Ke','e_var','y_ss','u_ss','Ts');
+load('singleheater_model_n3.mat','A','B','C','Ke','e_var','y_ss','u_ss','Ts');
 n = size(A,1);
 
 % Noise: keep at 0 during MPC tuning (ideal conditions)

@@ -27,7 +27,7 @@ N = T/Ts;       % Number of samples
 
 % ── MPC tuning (fixed from Q2/Q3) ─────────────────────────────────────────
 H = 50;        % prediction horizon (fixed from Q2)
-R = 0.05;       % control weight     (fixed from Q3)
+R = 0.04;       % control weight     (fixed from Q3)
 
 % ── Toggles ──────────────────────────────────────────────────────────────
 % perturb_amount: constant additive input disturbance applied to the plant.
@@ -46,11 +46,11 @@ offset = 0;            % desired Dy(1) = offset [°C]
 % ═════════════════════════════════════════════════════════════════════════
 
 % ── Reference (incremental) ───────────────────────────────────────────────
-Dr = 10;         % desired output increment [°C]  -> r = y_ss + Dr
+Dr = 0;         % desired output increment [°C]  -> r = y_ss + Dr
 
 % HARD constraint δy_hat​(i)≤55−y_bar ​−Δr
 y_max = 55; 
-y_max_inc = (y_max - y_ss) - Dr; 
+y_max_inc = []; 
 mode = 1; % 0 is dense ; 1 is sparse
 
 % ── Q4.A — Feedforward: solve steady-state equations ─────────────────────
