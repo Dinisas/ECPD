@@ -1,5 +1,7 @@
-function [u0, exitflag] = mpc_solve_sparse(x0, H, R, A, B, C, lb, ub, y_max_inc)
+function [u0, exitflag] = mpc_solve_sparse(x0, H, R, A, B, C, lb, ub, y_max_inc, const_type, alpha)
 % MPC_SOLVE_SPARSE  Solve the MPC regulator using quadprog — SPARSE formulation.
+% const_type = 0 : hard output constraint (default)
+% const_type = 1 : soft output constraint (slack variables penalised by alpha)
 %
 %   u0 = mpc_solve_sparse(x0, H, R, A, B, C)          % unconstrained
 %   u0 = mpc_solve_sparse(x0, H, R, A, B, C, lb, ub)  % control bounds
@@ -56,17 +58,20 @@ function [u0, exitflag] = mpc_solve_sparse(x0, H, R, A, B, C, lb, ub, y_max_inc)
 %   available as an optimisation variable.
 
 %% ── Defaults ─────────────────────────────────────────────────────────────
-if nargin < 7,  lb = []; end
-if nargin < 8,  ub = []; end
-if nargin < 9,  y_max_inc = []; end     % empty = no output constraint
+if nargin < 7,   lb         = []; end
+if nargin < 8,   ub         = []; end
+if nargin < 9,   y_max_inc  = []; end
+if nargin < 10,  const_type = 0;  end   % hard by default
+if nargin < 11,  alpha      = 1e6; end  % large default -> near-hard behaviour
 
 use_output_constraint = ~isempty(y_max_inc);
 
 %% ── Dimensions ───────────────────────────────────────────────────────────
-n   = size(A, 1);
-N_x = (H+1) * n;   % number of state  optimisation variables
-N_u = H;            % number of control optimisation variables
-N_z = N_x + N_u;   % total size of z
+n     = size(A, 1);
+N_x   = (H+1) * n;   % number of state  optimisation variables
+N_u   = H;            % number of control optimisation variables
+N_eta = H;            % one slack per prediction step (soft constraints)
+N_z   = N_x + N_u;   % base decision vector size (hard / no constraint)
 
 %% ── Cost matrices ────────────────────────────────────────────────────────
 % Stage output cost: Q_stage = C'*C  (n×n positive semidefinite)
@@ -80,10 +85,15 @@ Qtilde = blkdiag(zeros(n), kron(eye(H), Q_stage));
 Rtilde = R * eye(H);
 
 % quadprog minimises  1/2 * z'*F*z + f'*z
-%   J = X'*Qtilde*X + U'*Rtilde*U
-%     = (1/2)*z'* 2*blkdiag(Qtilde,Rtilde) *z + 0'*z
+%   J = X'*Qtilde*X + U'*Rtilde*U  [+ alpha*eta'*eta for soft]
 F = 2 * blkdiag(Qtilde, Rtilde);
 f = zeros(N_z, 1);
+
+% Soft constraint: extend F and f with alpha penalty on slack variables eta
+if const_type == 1
+    F = blkdiag(F, alpha * eye(N_eta));
+    f = [f; zeros(N_eta, 1)];
+end
 
 %% ── Equality constraints  (dynamics + initial condition) ─────────────────
 % Layout of z (column vector):
@@ -127,29 +137,46 @@ for i = 0:H-1
     Aeq(r1:r2, c_ui) = -B;
 end
 
+% Soft constraint: extend Aeq with zero columns for eta
+if const_type == 1
+    Aeq = [Aeq, zeros(N_eq, N_eta)];
+end
+
 %% ── Bounds on z ──────────────────────────────────────────────────────────
-% State variables are unconstrained; bounds apply only to U.
-if ~isempty(lb) || ~isempty(ub)
-    if isempty(lb), lb = -inf(N_u, 1); end
-    if isempty(ub), ub =  inf(N_u, 1); end
-    lb_z = [-inf(N_x, 1); lb];
-    ub_z = [ inf(N_x, 1); ub];
-else
-    lb_z = [];
-    ub_z = [];
+% State variables are unconstrained; bounds apply only to U (and eta >= 0).
+if const_type == 0
+    if ~isempty(lb) || ~isempty(ub)
+        if isempty(lb), lb = -inf(N_u, 1); end
+        if isempty(ub), ub =  inf(N_u, 1); end
+        lb_z = [-inf(N_x, 1); lb];
+        ub_z = [ inf(N_x, 1); ub];
+    else
+        lb_z = [];
+        ub_z = [];
+    end
+else  % soft: append eta >= 0
+    if ~isempty(lb) || ~isempty(ub)
+        if isempty(lb), lb = -inf(N_u, 1); end
+        if isempty(ub), ub =  inf(N_u, 1); end
+        lb_z = [-inf(N_x, 1); lb; zeros(N_eta, 1)];
+        ub_z = [ inf(N_x, 1); ub;  inf(N_eta, 1)];
+    else
+        lb_z = [];
+        ub_z = [];
+    end
 end
 
 
-%% Constraint: W*U <= y_max_inc*ones(H,1) - Pi*x0
+%% ── Output constraint ────────────────────────────────────────────────────
 if use_output_constraint
-    % C_til maps X = [xhat(0); xhat(1); ...; xhat(H)] to [yhat(1); ...; yhat(H)]
-    % xhat(0) does not appear in the cost -> prepend zero block
-    C_til  = kron(eye(H), C);            % H × H*n  (outputs yhat(1)..yhat(H))
-    C_til  = [zeros(H, n), C_til];       % H × (H+1)*n  (prepend zero for xhat(0))
-
-    % Full inequality: [C_til, 0_{H×H}] * z <= y_max_inc * ones(H,1)
-    A_ineq = [C_til, zeros(H, N_u)];     % H × N_z
-    b_ineq = y_max_inc * ones(H, 1);     % H × 1
+    C_til  = [zeros(H, n), kron(eye(H), C)];   % H × (H+1)*n
+    if const_type == 0  % hard
+        A_ineq = [C_til, zeros(H, N_u)];
+        b_ineq = y_max_inc * ones(H, 1);
+    else                % soft:  yhat(i) - eta(i) <= y_max_inc
+        A_ineq = [C_til, zeros(H, N_u), -eye(N_eta)];
+        b_ineq = y_max_inc * ones(H, 1);
+    end
 else
     A_ineq = [];
     b_ineq = [];

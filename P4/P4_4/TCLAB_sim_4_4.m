@@ -206,4 +206,184 @@ yline(100-u_ss,  'r--')
 xlabel('Time [s]'), ylabel('\Delta u [%]')
 
 %--------------------------------------------------------------------------
+% End of Q4 original section
+
+% ═════════════════════════════════════════════════════════════════════════
+%  Q4.5a — NON-REGULARIZED sparse solver: hard vs soft, effect of alpha
+%
+%  Shows that without Tikhonov regularisation the hard constraint can produce
+%  poor conditioning / unexpected exitflags, motivating the switch to the
+%  regularised solver with soft constraints.
+% ═════════════════════════════════════════════════════════════════════════
+
+% ── Reference (same as Q4.5 — above 55 °C) ───────────────────────────────
+Dr_q5     = 55 - y_ss + 5;
+y_max_q5  = 55;
+y_max_inc_q5 = (y_max_q5 - y_ss) - Dr_q5;
+
+% Feedforward for Dr_q5
+M_q5   = [eye(n)-A, -B; C, 0];
+b_q5   = [zeros(n,1); Dr_q5];
+sol_q5 = M_q5 \ b_q5;
+Dx_bar_q5 = sol_q5(1:n);
+Du_bar_q5 = sol_q5(end);
+lb_q5 = (-u_ss       - Du_bar_q5) * ones(H,1);
+ub_q5 = ( 100-u_ss   - Du_bar_q5) * ones(H,1);
+x0_q5 = x_ss + Dx0;
+t_q5  = (0:N-1) * Ts;
+
+fprintf('\n=== Q4.5a — NON-REGULARIZED: Safety constraint test ===\n')
+fprintf('  Reference r = %.2f °C  (y_max = %.0f °C)\n', y_ss + Dr_q5, y_max_q5)
+
+q5_cases = { 'Hard constraint',   0,   NaN  ; ...
+             'Soft  \alpha=1',    1,   1    ; ...
+             'Soft  \alpha=10',   1,   10   ; ...
+             'Soft  \alpha=100',  1,   100  ; ...
+             'Soft  \alpha=1000', 1,   1000 };
+n_q5 = size(q5_cases, 1);
+
+Y_q5a  = nan(n_q5, N);
+U_q5a  = nan(n_q5, N);
+EF_q5a = nan(n_q5, N);
+
+for ci = 1:n_q5
+    lbl       = q5_cases{ci,1};
+    ctype     = q5_cases{ci,2};
+    alpha_val = q5_cases{ci,3};
+    fprintf('  Running: %s ...', lbl)
+
+    x_ci      = nan(n, N+1);
+    x_ci(:,1) = x0_q5;
+
+    for k = 1:N
+        y_k  = T1C(x_ci(:,k));
+        Dx_k = x_ci(:,k) - x_ss;
+        dx_k = Dx_k - Dx_bar_q5;
+
+        if ctype == 0
+            [du_k, ef_k] = mpc_solve_sparse( ...
+                dx_k, H, R, A, B, C, lb_q5, ub_q5, y_max_inc_q5, 0);
+        else
+            [du_k, ef_k] = mpc_solve_sparse( ...
+                dx_k, H, R, A, B, C, lb_q5, ub_q5, y_max_inc_q5, 1, alpha_val);
+        end
+
+        Du_k        = du_k + Du_bar_q5;
+        u_k         = u_ss + Du_k;
+        Y_q5a(ci,k) = y_k;
+        U_q5a(ci,k) = u_k;
+        EF_q5a(ci,k)= ef_k;
+        x_ci(:,k+1) = h1(x_ci(:,k), u_k);
+    end
+
+    n_inf = sum(EF_q5a(ci,:) ~= 1);
+    fprintf('  infeasible steps: %d / %d\n', n_inf, N)
+end
+fprintf('Q4.5a done.\n')
+
+% ── Plot Q4.5a ────────────────────────────────────────────────────────────
+colors_q5 = lines(n_q5);
+figure('Units','normalized','Position',[0.05 0.05 0.55 0.42])
+subplot(2,1,1), hold on, grid on
+title(sprintf('Q4.5a — NON-REGULARIZED: Hard vs Soft  (r = %.1f °C, y_{max} = %.0f °C)', ...
+              y_ss + Dr_q5, y_max_q5))
+for ci = 1:n_q5
+    plot(t_q5, Y_q5a(ci,:), 'Color', colors_q5(ci,:), 'LineWidth', 1.5, ...
+         'DisplayName', q5_cases{ci,1})
+end
+yline(y_ss + Dr_q5, 'g--', 'LineWidth', 1.5, 'DisplayName', 'Reference r')
+yline(y_max_q5,     'r--', 'LineWidth', 2,   'DisplayName', 'y_{max} = 55°C')
+xlabel('Time [s]'), ylabel('y [°C]')
+legend('Location','best','Interpreter','tex')
+
+subplot(2,1,2), hold on, grid on
+for ci = 1:n_q5
+    stairs(t_q5, U_q5a(ci,:), 'Color', colors_q5(ci,:), 'LineWidth', 1.5, ...
+           'DisplayName', q5_cases{ci,1})
+end
+yline(100, 'r--', 'HandleVisibility','off')
+xlabel('Time [s]'), ylabel('u [%]')
+ylim([20 100])
+legend('Location','best','Interpreter','tex')
+
+% ═════════════════════════════════════════════════════════════════════════
+%  Q4.5b — REGULARIZED sparse solver: hard vs soft, effect of alpha
+%
+%  Reference is set ABOVE 55 °C so the hard constraint becomes infeasible.
+%  We then switch to soft constraints and compare alpha = 1, 10, 100, 1000.
+% ═════════════════════════════════════════════════════════════════════════
+
+% All setup variables (Dr_q5, y_max_inc_q5, Dx_bar_q5, lb_q5, ub_q5,
+% x0_q5, t_q5, q5_cases, n_q5) are already defined in Q4.5a above.
+
+fprintf('\n=== Q4.5b — REGULARIZED: Safety constraint test ===\n')
+fprintf('  Reference r = %.2f °C  (y_max = %.0f °C)\n', y_ss + Dr_q5, y_max_q5)
+
+% Storage
+Y_q5b  = nan(n_q5, N);
+U_q5b  = nan(n_q5, N);
+EF_q5b = nan(n_q5, N);
+
+% ── Sequential simulation loop ────────────────────────────────────────────
+for ci = 1:n_q5
+    lbl       = q5_cases{ci,1};
+    ctype     = q5_cases{ci,2};
+    alpha_val = q5_cases{ci,3};
+
+    fprintf('  Running: %s ...', lbl)
+
+    x_ci      = nan(n, N+1);
+    x_ci(:,1) = x0_q5;
+
+    for k = 1:N
+        y_k  = T1C(x_ci(:,k));
+        Dx_k = x_ci(:,k) - x_ss;
+        dx_k = Dx_k - Dx_bar_q5;
+
+        if ctype == 0
+            [du_k, ef_k] = mpc_solve_sparse_regularized( ...
+                dx_k, H, R, A, B, C, lb_q5, ub_q5, y_max_inc_q5, 0);
+        else
+            [du_k, ef_k] = mpc_solve_sparse_regularized( ...
+                dx_k, H, R, A, B, C, lb_q5, ub_q5, y_max_inc_q5, 1, alpha_val);
+        end
+
+        Du_k         = du_k + Du_bar_q5;
+        u_k          = u_ss + Du_k;
+        Y_q5b(ci,k)  = y_k;
+        U_q5b(ci,k)  = u_k;
+        EF_q5b(ci,k) = ef_k;
+        x_ci(:,k+1)  = h1(x_ci(:,k), u_k);
+    end
+
+    n_inf = sum(EF_q5b(ci,:) ~= 1);
+    fprintf('  infeasible steps: %d / %d\n', n_inf, N)
+end
+fprintf('Q4.5b done.\n')
+
+% ── Plot Q4.5b ────────────────────────────────────────────────────────────
+figure('Units','normalized','Position',[0.42 0.05 0.55 0.42])
+subplot(2,1,1), hold on, grid on
+title(sprintf('Q4.5b — REGULARIZED: Hard vs Soft  (r = %.1f °C, y_{max} = %.0f °C)', ...
+              y_ss + Dr_q5, y_max_q5))
+for ci = 1:n_q5
+    plot(t_q5, Y_q5b(ci,:), 'Color', colors_q5(ci,:), 'LineWidth', 1.5, ...
+         'DisplayName', q5_cases{ci,1})
+end
+yline(y_ss + Dr_q5, 'g--', 'LineWidth', 1.5, 'DisplayName', 'Reference r')
+yline(y_max_q5,     'r--', 'LineWidth', 2,   'DisplayName', 'y_{max} = 55°C')
+xlabel('Time [s]'), ylabel('y [°C]')
+legend('Location','best','Interpreter','tex')
+
+subplot(2,1,2), hold on, grid on
+for ci = 1:n_q5
+    stairs(t_q5, U_q5b(ci,:), 'Color', colors_q5(ci,:), 'LineWidth', 1.5, ...
+           'DisplayName', q5_cases{ci,1})
+end
+yline(100, 'r--', 'HandleVisibility','off')
+xlabel('Time [s]'), ylabel('u [%]')
+ylim([20 100])
+legend('Location','best','Interpreter','tex')
+
+%--------------------------------------------------------------------------
 % End of File

@@ -1,12 +1,16 @@
-function [u0, exitflag] = mpc_solve_sparse(x0, H, R, A, B, C, lb, ub, y_max_inc,const_type)
-% MPC_SOLVE_SPARSE  Sparse MPC via quadprog with Tikhonov regularisation.
+function [u0, exitflag] = mpc_solve_sparse_regularized(x0, H, R, A, B, C, lb, ub, y_max_inc, const_type, alpha)
+% MPC_SOLVE_SPARSE_REGULARIZED  Sparse MPC via quadprog with Tikhonov regularisation.
 % Solves the same problem as mpc_solve (dense) but keeping state variables
 % as explicit optimisation variables, with dynamics as equality constraints.
+%
+% const_type = 0 : hard output constraint
+% const_type = 1 : soft output constraint (slack variables penalised by alpha)
 
-if nargin < 7,  lb        = []; end
-if nargin < 8,  ub        = []; end
-if nargin < 9,  y_max_inc = []; end
-if nargin < 10,  const_type = 0; end % use hard by default 
+if nargin < 7,   lb         = []; end
+if nargin < 8,   ub         = []; end
+if nargin < 9,   y_max_inc  = []; end
+if nargin < 10,  const_type = 0;  end  % hard by default
+if nargin < 11,  alpha      = 1e6; end % large default -> near-hard behaviour
 
 use_output_constraint = ~isempty(y_max_inc);
 
@@ -26,8 +30,6 @@ Q_stage = C' * C;
 Qtilde  = blkdiag(zeros(n), kron(eye(H), Q_stage));
 Rtilde  = R * eye(H);
 epsilon = 1e-6;
-
-alpha= 1e6;
 
 % More principled: only regularise the ill-conditioned state block
 F = 2 * blkdiag(Qtilde + epsilon*eye((H+1)*n), Rtilde);
