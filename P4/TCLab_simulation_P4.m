@@ -19,10 +19,10 @@ clc
 % ── Paths ─────────────────────────────────────────────────────────────────
 base = fileparts(mfilename('fullpath'));   % folder where this script lives
 addpath(fullfile(base, '../P3'));          % singleheater_model.mat
-addpath(fullfile(base, '../P4'));          % mpc_solve.m
+addpath(fullfile(base, '../P4'));          % mpc_solve_sparse_regularized.m
 
 % ── Load model ────────────────────────────────────────────────────────────
-load('singleheater_model_n3.mat','A','B','C','Ke','e_var','y_ss','u_ss','Ts');
+load('singleheater_model_n2.mat','A','B','C','Ke','e_var','y_ss','u_ss','Ts');
 n = size(A,1);
 
 % Noise: keep at 0 during MPC tuning (ideal conditions)
@@ -71,7 +71,7 @@ for i = 1:length(H_list)
     for k = 1:N
         t(k)      = (k-1)*Ts;
         Dy(k)     = C*Dx(:,k) + e_std*randn;
-        Du(k)     = mpc_solve(Dx(:,k), H_i, R_fixed, A, B, C);   % unconstrained
+        Du(k)     = mpc_solve_sparse_regularized(Dx(:,k), H_i, R_fixed, A, B, C);   % unconstrained
         Dx(:,k+1) = A*Dx(:,k) + B*Du(k) + Ke*e_std*randn;
     end
 
@@ -113,7 +113,7 @@ for i = 1:length(R_list)
     for k = 1:N
         t(k)      = (k-1)*Ts;
         Dy(k)     = C*Dx(:,k) + e_std*randn;
-        Du(k)     = mpc_solve(Dx(:,k), H_chosen, R_i, A, B, C);   % unconstrained
+        Du(k)     = mpc_solve_sparse_regularized(Dx(:,k), H_chosen, R_i, A, B, C);   % unconstrained
         Dx(:,k+1) = A*Dx(:,k) + B*Du(k) + Ke*e_std*randn;
     end
 
@@ -149,8 +149,8 @@ for k = 1:N
     Dy(k)     = C*Dx(:,k) + e_std*randn;
     
     % Note: If you experience numeric chattering with H=100 and dense solver,
-    % you can swap this to mpc_solve_sparse(...)
-    Du(k)     = mpc_solve(Dx(:,k), H_chosen, R_Q3, A, B, C, lb, ub);   % constrained
+    % you can swap this to mpc_solve_sparse_regularized(...)
+    Du(k)     = mpc_solve_sparse_regularized(Dx(:,k), H_chosen, R_Q3, A, B, C, lb, ub);   % constrained
     
     Dx(:,k+1) = A*Dx(:,k) + B*Du(k) + Ke*e_std*randn;
 end
